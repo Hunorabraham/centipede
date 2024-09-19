@@ -1,7 +1,7 @@
 const can = document.querySelectorAll("canvas")[0];
 const draw = can.getContext("2d");
 draw.imageSmoothingEnabled = false;
-
+console.log(draw);
 can.width = window.innerWidth;
 can.height = window.innerWidth/4*3;
 
@@ -84,22 +84,23 @@ function handedness(v,w){
 
 
 class leg{
-	constructor(parentPos, parentDir, offset, desiredOffset, segmentLength){
-		this.ParentPos = parentPos;
-		this.ParentDir = parentDir;
+	constructor(p, offset, desiredOffset, segmentLength){
+		this.Parent = p;
 		this.Offset = offset;
 		this.DesiredOffset = desiredOffset;
-		this.StartPoint = parentPos.add(offset.mulMat(Mat2.rotation(parentDir.angle())));
+		this.StartPoint = p.Pos.add(offset.mulMat(Mat2.rotation(p.Dir.angle())));
 		this.SegmentLength = segmentLength;
-		this.EndPoint = parentPos.add(desiredOffset.mulMat(Mat2.rotation(parentDir.angle())));
+		this.EndPoint = p.Pos.add(desiredOffset.mulMat(Mat2.rotation(p.Dir.angle())));
 		let diff = this.StartPoint.sub(this.EndPoint);
 		let phi = Math.acos(diff.magnitude()*0.5 /this.SegmentLength);
-		let hand = handedness(this.ParentDir, diff);
+		let hand = handedness(this.Parent.Dir, diff);
 		phi *= hand;
 		this.MidPoint = diff.mulMat(Mat2.rotation(phi)).normalise().mulConst(this.SegmentLength);
 	}
 	render(){
+		draw.lineWidth = 2;
 		draw.beginPath();
+		//draw.arc(this.StartPoint.X, this.StartPoint.Y, this.SegmentLength*2, 0, Math.PI*2);
 		draw.moveTo(this.StartPoint.X, this.StartPoint.Y);
 		draw.lineTo(this.MidPoint.X, this.MidPoint.Y);
 		draw.lineTo(this.EndPoint.X, this.EndPoint.Y);
@@ -107,45 +108,55 @@ class leg{
 		draw.closePath();
 	}
 	update(){
-		let desiredPoint = this.ParentPos.add(this.Offset.mulMat(Mat2.rotation(this.ParentDir.angle())));
-		if(this.EndPoint.sub(desiredPoint).magnitudeSqrd()>(this.SegmentLength*2)**2){
-			this.EndPoint = this.ParentPos.add(this.DesiredOffset.mulMat(Mat2.rotation(this.ParentDir.angle())));
-		}
-		this.StartPoint = this.ParentPos.add(this.Offset.mulMat(Mat2.rotation(this.ParentDir.angle())));
-		let diff = this.StartPoint.sub(this.EndPoint);
+		let desiredPoint = this.Parent.Pos.add(this.DesiredOffset.mulMat(Mat2.rotation(this.Parent.Dir.angle())));
+		this.StartPoint = this.Parent.Pos.add(this.Offset.mulMat(Mat2.rotation(this.Parent.Dir.angle())));
+		let diff = this.EndPoint.sub(this.StartPoint);
 		let phi = Math.acos(diff.magnitude()*0.5 /this.SegmentLength);
-		let hand = handedness(this.ParentDir, diff);
+		if(isNaN(phi) || Math.abs(dot(this.Parent.Dir, diff)/diff.magnitude())>0.97){
+			this.EndPoint = this.Parent.Pos.add(this.DesiredOffset.mulMat(Mat2.rotation(this.Parent.Dir.angle())));
+			diff = this.EndPoint.sub(this.StartPoint);
+			phi = Math.acos(diff.magnitude()*0.5 /this.SegmentLength);
+		}
+		let hand = handedness(diff, this.Parent.Dir);
 		phi *= hand;
-		this.MidPoint = diff.mulMat(Mat2.rotation(phi)).normalise().mulConst(this.SegmentLength);
+		this.MidPoint = this.StartPoint.add(diff.mulMat(Mat2.rotation(phi)).normalise().mulConst(this.SegmentLength));
 	}
 }
 
 class segment{
-	constructor(pos, size, dir){
+	constructor(pos, size, dir,col){
 		this.Pos = pos;
+		this.Col = col;
 		this.Size = size;
 		this.Vel = vec2.Zero();
 		this.Dir = dir;
 		this.Forces = vec2.Zero();
 		this.Legs = [];
-		for(let i = 0; i < 3; i++){
-			let l = new leg(this.Pos,this.Dir,new vec2(this.Size.X/2,this.Size.Y/4*(i+1)), new vec2(this.Size.X,this.Size.Y/4*(i+1)), this.Size.X);
+		for(let i = 0; i < 1; i++){
+			let l = new leg(this, new vec2(this.Size.X/2, this.Size.Y/2), new vec2(this.Size.X/2, this.Size.Y*2*0.8), this.Size.Y*0.8);
 			this.Legs.push(l);
 		}
-		for(let i = 0; i < 3; i++){
-			let l = new leg(this.Pos,this.Dir,new vec2(-this.Size.X/2,this.Size.Y/4*(i+1)), new vec2(-this.Size.X,this.Size.Y/4*(i+1)), this.Size.X);
+		for(let i = 0; i < 1; i++){
+			let l = new leg(this, new vec2(this.Size.X/2, -this.Size.Y/2), new vec2(this.Size.X/2, -this.Size.Y*2*0.8), this.Size.Y*0.8);
 			this.Legs.push(l);
 		}
 	}
 	render(){
 		this.Legs.forEach((l)=>l.render());
-		draw.beginPath();
 		draw.translate(this.Pos.X, this.Pos.Y);
 		draw.rotate(this.Dir.angle());
+		draw.beginPath();
+		draw.fillStyle = `black`;
 		draw.roundRect(-this.Size.X/2,-this.Size.Y/2,this.Size.X, this.Size.Y, this.Size.X/5);
 		draw.fill();
-		draw.resetTransform();
 		draw.closePath();
+		draw.beginPath();
+		draw.fillStyle = `hsl(${this.Col}, 90%, 50%)`;
+		let ratio = 0.9;
+		draw.roundRect(-this.Size.X/2*ratio,-this.Size.Y/2*ratio,this.Size.X*ratio, this.Size.Y*ratio, this.Size.X/5);
+		draw.fill();
+		draw.closePath();
+		draw.resetTransform();
 	}
 	update(){
 		//currently unnecessary
@@ -164,7 +175,9 @@ class pede{
 		this.Size = size;
 		this.Spine = [];
 		for(let i = 0; i < legs; i++){
-			this.Spine.push(new segment(pos.add(dir.mulConst(-i*size)), new vec2(size, size/8*11), dir));
+			let t = Math.abs((i-legs/2))/(legs/2);
+			let size2 = size*(1+legs/100)*(1-t) + size*(t);
+			this.Spine.push(new segment(pos.add(dir.mulConst(-i*size2)), new vec2(size2, size2/8*11), dir, col));
 		}
 		this.Head = this.Spine[0];
 	}
@@ -181,8 +194,8 @@ class pede{
 			let time = this.Size/curr.Vel.magnitude();
 			phi*=planc/time;
 			curr.Vel.mulMatInto(Mat2.rotation(phi));*/
-			curr.Dir = curr.Pos.sub(prev.Pos).normalise();
-			curr.Pos = prev.Pos.add(curr.Dir.mulConst(this.Size));
+			curr.Dir = prev.Pos.sub(curr.Pos).normalise();
+			curr.Pos = prev.Pos.add(curr.Dir.mulConst(-this.Size));
 			this.Spine[i].update();
 		}
 	}
@@ -194,14 +207,37 @@ class pede{
 
 let test = new vec2(100,100);
 
-let sipi = new pede(new vec2(200,200),new vec2(1,0), 20, 8, 0);
+let sipi = new pede(new vec2(200,200),new vec2(1,0), 30, 8, 0);
 
-sipi.Head.Vel.Y = 20;
+sipi.Head.Vel.X = 0;
 
 sipi.render();
 
-
+/*
+can.onmousemove=(e)=>{
+	sipi.Head.Pos.X = e.offsetX;
+	sipi.Head.Pos.Y = e.offsetY;
+}
+*/
 setInterval(()=>{
+	buttons.forEach((button)=>{
+		switch(button){
+			case "a":
+				sipi.Head.Vel = new vec2(-100,0);
+				break;
+			case "d":
+				sipi.Head.Vel = new vec2(100,0);
+				break;
+			case "s":
+				sipi.Head.Vel = new vec2(0,100);
+				break;
+			case "w":
+				sipi.Head.Vel = new vec2(0,-100);
+				break;
+		}
+	});
+	
+	
 	draw.clearRect(0,0,can.width,can.height);
 	sipi.update();
 	sipi.render();
