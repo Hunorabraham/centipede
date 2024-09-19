@@ -1,0 +1,17 @@
+Can.onmousemove = (e) => 
+{
+    draw.beginPath();
+    let vector = {};
+    vector.x = e.offsetX-Can.width/2; 
+    vector.y = e.offsetY-Can.height/2;
+    vector.phi = Math.atan2(vector.y,vector.x);
+    let phi = Math.acos(Math.sqrt(vector.x**2+vector.y**2)/(armlegth*2));
+    if (!isNaN(phi))
+    {
+        draw.moveTo(Can.width/2,Can.height/2);
+        draw.lineTo(Can.width/2+armlegth*Math.cos(phi+vector.phi),Can.height/2+armlegth*Math.sin(phi+vector.phi));
+        draw.lineTo(e.offsetX,e.offsetY);
+        draw.stroke();
+    }
+    draw.closePath();
+} 
